@@ -1,0 +1,146 @@
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
+#include <errno.h>
+#include <stdbool.h>
+#include <math.h>
+
+#define SEND_BUFF_SIZE 1024
+#define REC_BUFF_SIZE 1024
+#define BUFF_SIZE 1024
+ 
+int main(int argc,char **argv)
+{
+    int sockfd,n;
+	char IP_ADDR[20];
+	int PORT_NUM;
+	char sendBuff[SEND_BUFF_SIZE];
+	char FILE_NAME[SEND_BUFF_SIZE];
+	char RecvBuff[REC_BUFF_SIZE];
+	int bytesSent;
+	int numOfPackets;
+	
+	
+	
+	strcpy(FILE_NAME, argv[1]);
+	strcpy(IP_ADDR, argv[2]);
+	sscanf(argv[3], "%d", &PORT_NUM);
+		
+    struct sockaddr_in servaddr;
+ 
+    sockfd=socket(AF_INET,SOCK_STREAM,0);
+    bzero(&servaddr,sizeof servaddr);
+ 
+    servaddr.sin_family=AF_INET;
+    servaddr.sin_port=htons(PORT_NUM);
+    servaddr.sin_addr.s_addr = inet_addr(IP_ADDR);
+ 
+    connect(sockfd,(struct sockaddr *)&servaddr,sizeof(servaddr));
+ 
+	FILE *fp = fopen(FILE_NAME, "r"); 
+
+	if(fp==NULL)
+	{
+		printf("File not found");
+		char *msg = "FileNotFound";
+		write(sockfd, msg, strlen(msg));
+		return 1;
+	}
+
+fseek(fp, 0, SEEK_END);
+int file_size = ftell(fp);
+fseek(fp, 0, SEEK_SET);
+char numPackts[20];
+numOfPackets = file_size / SEND_BUFF_SIZE + 1;
+//printf("need %d packets.\n", numOfPackets);
+sprintf(numPackts, "%d", numOfPackets);
+write(sockfd, numPackts, strlen(numPackts));
+	
+
+    clock_t begin = clock();
+    
+    while(1)
+    {
+		
+		memset(sendBuff, 0, sizeof(sendBuff));
+		int nread = fread(sendBuff, 1, SEND_BUFF_SIZE, fp);
+
+		if (nread < 0)
+		{
+			printf("Fail to read file\n");
+			return 1;
+		}else
+		{
+			//printf("Sending the file\n");
+			if (feof(fp) && nread < 1024)
+			{	
+				int bytesSent = write(sockfd, sendBuff, nread);
+				//printf("%d bytes send here\n", bytesSent);
+				printf("End of file\n");
+				fclose(fp);
+				break;
+				
+			}else
+			{
+				usleep(50);
+				int bytesSent = write(sockfd, sendBuff, nread);
+				
+				//printf("%d bytes send\n", bytesSent);
+					
+			}
+			
+		}		
+
+    }
+
+	char packetString[100];
+	read(sockfd, packetString, 100);
+	int numOfPacket = atoi(packetString);
+
+	int counter = 1;
+	FILE *fp_unzip = fopen("unzippedFile", "wb");
+	while(1)
+	{
+		memset(RecvBuff, 0, sizeof(RecvBuff));
+
+		if(counter == numOfPacket + 1)
+		{
+			memset(RecvBuff, 0, sizeof(RecvBuff));
+			printf("End of file\n");
+			fclose(fp);
+			break;
+
+		
+		}
+		int bytesReceived = read(sockfd, RecvBuff, REC_BUFF_SIZE);
+		usleep(3);
+		if (bytesReceived <= 0)
+		{
+			printf("error read: - %d\n", bytesReceived);
+			
+		}
+
+		//printf("bytesReceived - %d\n", bytesReceived);
+		usleep(50);
+		if(fwrite(RecvBuff, 1, bytesReceived,fp_unzip)<0)
+		{
+			memset(RecvBuff, 0, sizeof(RecvBuff));
+			printf("Error writting the file\n");
+			fclose(fp);	
+			return 1;
+		}	
+		counter = counter + 1;
+	
+	}
+	if(close(sockfd) < 0) printf("close unproperly\n");
+	clock_t end =  clock();
+	double time_taken = ((double)(end - begin))/CLOCKS_PER_SEC; 
+	printf("took %f seconds to execute \n", time_taken);
+	
+ 
+}
