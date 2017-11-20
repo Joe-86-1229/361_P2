@@ -1,0 +1,133 @@
+/*Required Headers*/
+ 
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#include <stdio.h>
+#include <string.h>
+
+
+#define REC_BUFF_SIZE 1024
+#define SEND_BUFF_SIZE 1024
+
+int main(int argc,char **argv)
+{
+ 
+   	char RecvBuff[REC_BUFF_SIZE];
+    	int listen_fd, comm_fd;
+	char sendBuff[SEND_BUFF_SIZE];
+	int PORT_NUM;
+	int numOfPacket;
+	char IP_ADDR[20];
+	
+	strcpy(IP_ADDR, argv[1]);
+	sscanf(argv[2], "%d", &PORT_NUM);
+ 
+   	 struct sockaddr_in servaddr;
+ 	
+    	if((listen_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0 )
+	{
+		printf("\n Error : Could not create socket \n");
+        	return 1;
+	}
+ 
+    	bzero( &servaddr, sizeof(servaddr));
+ 
+	servaddr.sin_family = AF_INET;
+	servaddr.sin_addr.s_addr = inet_addr(IP_ADDR);
+	servaddr.sin_port = htons(PORT_NUM);
+
+	bind(listen_fd, (struct sockaddr *) &servaddr, sizeof(servaddr));
+ 
+	listen(listen_fd, 10);
+ 
+	comm_fd = accept(listen_fd, (struct sockaddr*) NULL, NULL);
+	memset(RecvBuff, 0, sizeof(RecvBuff));
+
+	char packetString[100];
+	read(comm_fd, packetString, 100);
+	numOfPacket = atoi(packetString);
+
+	FILE *fp = fopen("ReceivedFile", "w"); 
+	int counter = 1;
+	while(1)
+	{
+		memset(RecvBuff, 0, sizeof(RecvBuff));
+		//printf("strlen of recvbuff: %d\n", strlen(RecvBuff));
+		if(counter == numOfPacket + 1)
+		{
+			memset(RecvBuff, 0, sizeof(RecvBuff));
+			printf("End of file\n");
+			fclose(fp);
+			break;
+
+		
+		}
+		int bytesReceived = read(comm_fd, RecvBuff, REC_BUFF_SIZE);
+		usleep(1);
+		if (bytesReceived <= 0)
+		{
+			printf("error read: - %d\n", bytesReceived);
+			
+		}
+
+		//printf("bytesReceived - %d\n", bytesReceived);
+		usleep(50);
+		if(fwrite(RecvBuff, 1, bytesReceived,fp)<0)
+		{
+			memset(RecvBuff, 0, sizeof(RecvBuff));
+			printf("Error writting the file\n");
+			fclose(fp);	
+			return 1;
+		}	
+		counter = counter + 1;
+	
+	}	
+	system("unzip -p ReceivedFile > unzippedFile");
+	//usleep(5);
+	FILE *fp_unzip = fopen("unzippedFile", "rb");
+ 
+	//printf("Start to sending it back to client....\n");
+
+	fseek(fp_unzip, 0, SEEK_END);
+	int file_size = ftell(fp_unzip);
+	fseek(fp_unzip, 0, SEEK_SET);
+	char numPackts[20];
+	int numOfPackets = file_size / SEND_BUFF_SIZE + 1;
+	//printf("need %d packets to sending back.\n", numOfPackets);
+	sprintf(numPackts, "%d", numOfPackets);
+	write(comm_fd, numPackts, strlen(numPackts));
+	
+	
+	 while(1)
+        {
+		memset(sendBuff, 0, sizeof(sendBuff));
+		int nread = fread(sendBuff, 1, SEND_BUFF_SIZE, fp_unzip );
+
+		if (nread < 0)
+		{
+			printf("Fail to read file\n");
+			return 1;
+		}else
+		 {
+			//printf("Sending th file\n");
+			if (feof(fp_unzip))
+			{
+				int bytesSent = write(comm_fd, sendBuff, nread);
+				//printf("%d bytes send", bytesSent);	
+				printf("End of file\n");
+				fclose(fp_unzip);
+				break;
+			}else
+			{	usleep(50);
+				int bytesSent = write(comm_fd, sendBuff, nread);
+				
+				//printf("%d bytes send\n", bytesSent);
+			}
+		}	
+        }
+
+	if(close(comm_fd) < 0) printf("close unproperly\n");
+	if(close(listen_fd) < 0) printf("close unproperly\n");
+	return 0;
+}
